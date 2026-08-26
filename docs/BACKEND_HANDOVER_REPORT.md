@@ -18,7 +18,7 @@ PORT=5000
 NODE_ENV=development
 
 # Neon Serverless Cloud PostgreSQL Connection String
-DATABASE_URL="postgresql://<user>:<password>@<endpoint>.neon.tech/<database>?sslmode=require"
+DATABASE_URL="<ADD FROM THE NEOM CONSOLE>"
 
 # JWT Authentication Secrets
 JWT_SECRET="REDACTED-published-example-secret"
@@ -105,8 +105,10 @@ All tables are created in 3NF with strict referential constraints and indexes:
 ## 5. REST API Routes Specification
 
 ### 5.1 Authentication (`/api/auth`)
-- `POST /api/auth/login` $ightarrow$ Body: `{ regOrEmpId, password }`. Returns `{ token, user }`.
-- `GET /api/auth/profile` $ightarrow$ Headers: `Bearer <token>`. Returns user profile + active room allotment.
+- `POST /api/auth/login` $
+ightarrow$ Body: `{ regOrEmpId, password }`. Returns `{ token, user }`.
+- `GET /api/auth/profile` $
+ightarrow$ Headers: `Bearer <token>`. Returns user profile + active room allotment.
 
 ### 5.2 Student Endpoints (`/api/complaints`) [Requires `role: 'STUDENT'`]
 - **`POST /api/complaints/quick-clean`** (1-Click Instant Room Cleaning):

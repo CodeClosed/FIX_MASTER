@@ -1,0 +1,36 @@
+{
+  "name": "fix_master",
+  "version": "1.0.0",
+  "description": "> **Course Code**: BCSE307L – Database Systems  \r > **Programme**: B.Tech (Fall Semester 2026-2027)  \r > **Faculty**: Dr. Deepika J | School of Computer Science and Engineering (SCOPE), VIT Vellore  \r > **Domain**: Real-World Relational Database & Facility Maintenance Operations  \r > **Evaluation Rubric Compliance**: 30 Regular Marks + 3 Bonus Marks (Total: 33/30)",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/CodeClosed/FIX_MASTER.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/CodeClosed/FIX_MASTER/issues"
+  },
+  "homepage": "https://github.com/CodeClosed/FIX_MASTER#readme",
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "jsonwebtoken": "^9.0.3",
+    "pg": "^8.23.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14"
+  }
+}

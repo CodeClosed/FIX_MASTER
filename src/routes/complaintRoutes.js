@@ -1,15 +1,17 @@
 const express = require('express');
 const router = express.Router();
 
-// 1. Verify this path exactly matches your controller's location and name
 const complaints = require('../controllers/complaintController');
 const { authenticate, authorize } = require('../middleware/auth');
+const {
+    createComplaintValidators,
+    listComplaintsValidators,
+    complaintIdParamValidators,
+} = require('../middleware/validators');
 
-// Debugging: This should print your two functions in the terminal, not an empty object {}
-console.log('Complaints controller imported as:', Object.keys(complaints));
-
-// 2. Route definitions
-router.post('/', authenticate, authorize('STUDENT', 'SUPERVISOR', 'ADMIN'), complaints.createComplaint);
-router.get('/', authenticate, complaints.getComplaints);
+router.post('/', authenticate, authorize('STUDENT', 'SUPERVISOR', 'ADMIN'), createComplaintValidators, complaints.createComplaint);
+router.get('/', authenticate, listComplaintsValidators, complaints.getComplaints);
+router.get('/:id', authenticate, complaintIdParamValidators, complaints.getComplaintById);
+router.get('/:id/logs', authenticate, complaintIdParamValidators, complaints.getComplaintLogs);
 
 module.exports = router;

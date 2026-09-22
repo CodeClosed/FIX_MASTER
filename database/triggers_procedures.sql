@@ -9,10 +9,20 @@
 -- ============================================================================
 
 -- Trigger 1: Automated Audit Logging for Complaint Status Changes
+--
+-- changed_by_user_id is read from the session-local setting 'app.current_user_id',
+-- which the application sets with `SET LOCAL app.current_user_id = <uuid>` at the
+-- start of any transaction that changes complaint status (see src/config/db.js's
+-- withTransaction helper). If nothing set it (e.g. a manual psql UPDATE), the log
+-- row is written with changed_by_user_id = NULL rather than failing.
 CREATE OR REPLACE FUNCTION fn_audit_complaint_status_change()
 RETURNS TRIGGER AS $$
+DECLARE
+    v_actor_id VARCHAR(36);
 BEGIN
     IF (OLD.status IS DISTINCT FROM NEW.status) THEN
+        v_actor_id := NULLIF(current_setting('app.current_user_id', true), '');
+
         INSERT INTO complaint_logs (
             complaint_id,
             changed_by_user_id,
@@ -22,10 +32,10 @@ BEGIN
         )
         VALUES (
             NEW.complaint_id,
-            NULL,
+            v_actor_id,
             OLD.status,
             NEW.status,
-            CONCAT('Automated transition: ', OLD.status, ' -> ', NEW.status)
+            CONCAT('Transition: ', OLD.status, ' -> ', NEW.status)
         );
     END IF;
     RETURN NEW;
@@ -65,37 +75,41 @@ EXECUTE FUNCTION fn_update_complaint_timestamps();
 -- ============================================================================
 
 -- Procedure 1: 1-Click Auto-Dispatch for Cleaning Staff (Least Loaded)
+--
+-- p_assigned_staff_id is an INOUT parameter: it comes back NULL when no
+-- on-duty cleaning staff were available, and the complaint is left OPEN
+-- rather than silently reporting success. Callers must check this value
+-- instead of assuming the CALL succeeding means a technician was dispatched.
 CREATE OR REPLACE PROCEDURE sp_auto_dispatch_cleaning(
-    p_complaint_id VARCHAR(36)
+    p_complaint_id VARCHAR(36),
+    INOUT p_assigned_staff_id VARCHAR(36) DEFAULT NULL
 )
 LANGUAGE plpgsql
 AS $$
-DECLARE
-    v_assigned_staff_id VARCHAR(36);
 BEGIN
     -- 1. Identify on-duty cleaning staff with minimum active assignments
-    SELECT u.user_id INTO v_assigned_staff_id
+    SELECT u.user_id INTO p_assigned_staff_id
     FROM users u
-    LEFT JOIN complaint_assignments ca 
-        ON u.user_id = ca.staff_user_id 
+    LEFT JOIN complaint_assignments ca
+        ON u.user_id = ca.staff_user_id
         AND ca.current_state IN ('ASSIGNED', 'IN_PROGRESS')
-    WHERE u.role = 'STAFF' 
-      AND u.specialization = 'CLEANING' 
+    WHERE u.role = 'STAFF'
+      AND u.specialization = 'CLEANING'
       AND u.is_available = TRUE
     GROUP BY u.user_id
     ORDER BY COUNT(ca.assignment_id) ASC, u.created_at ASC
     LIMIT 1;
 
-    IF v_assigned_staff_id IS NULL THEN
-        UPDATE complaints 
-        SET status = 'OPEN' 
+    IF p_assigned_staff_id IS NULL THEN
+        UPDATE complaints
+        SET status = 'OPEN'
         WHERE complaint_id = p_complaint_id;
     ELSE
         INSERT INTO complaint_assignments (complaint_id, staff_user_id, current_state)
-        VALUES (p_complaint_id, v_assigned_staff_id, 'ASSIGNED');
+        VALUES (p_complaint_id, p_assigned_staff_id, 'ASSIGNED');
 
-        UPDATE complaints 
-        SET status = 'ASSIGNED' 
+        UPDATE complaints
+        SET status = 'ASSIGNED'
         WHERE complaint_id = p_complaint_id;
     END IF;
 END;

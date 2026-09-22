@@ -46,27 +46,29 @@ INSERT INTO common_areas (area_id, block_id, floor_number, area_type, descriptio
 ON CONFLICT (area_id) DO NOTHING;
 
 -- 4. Insert Unified Users (Admins, Supervisors, Staff, Students)
--- Password for all seed users is 'Password@123' (BCrypt hash)
+-- Password for all seed users is 'Password@123' (bcrypt, cost 12, verified to match).
+-- This is a shared demo credential for local development only - rotate it before
+-- any deployment that isn't strictly local.
 INSERT INTO users (user_id, reg_or_emp_id, full_name, email, phone_number, password_hash, role, specialization, is_available) VALUES
 -- Admin
-('u001-admin-0001-uuid-000000000001', 'ADMIN_ESTATES_01', 'Chief Warden / Estates Admin', 'admin.hostels@vit.ac.in', '9876543210', '$2a$12$eKx6v1s97N8zL6a1k2qJ6.k4pZ2hY6dG9oP4eN1mB3vC7xS5tU0q2', 'ADMIN', NULL, TRUE),
+('u001-admin-0001-uuid-000000000001', 'ADMIN_ESTATES_01', 'Chief Warden / Estates Admin', 'admin.hostels@vit.ac.in', '9876543210', '$2b$12$FHrTmI5VL8yWlJQ07Vfcx.nuZhvBoNSdei0tQSGyJwCjM1BY2uxiS', 'ADMIN', NULL, TRUE),
 
 -- Supervisors
-('u002-supv-0001-uuid-000000000002', 'SUP_LBLOCK_01', 'Mr. R. Sundaram (L-Block Supervisor)', 'supervisor.lblock@vit.ac.in', '9876543211', '$2a$12$eKx6v1s97N8zL6a1k2qJ6.k4pZ2hY6dG9oP4eN1mB3vC7xS5tU0q2', 'SUPERVISOR', NULL, TRUE),
+('u002-supv-0001-uuid-000000000002', 'SUP_LBLOCK_01', 'Mr. R. Sundaram (L-Block Supervisor)', 'supervisor.lblock@vit.ac.in', '9876543211', '$2b$12$FHrTmI5VL8yWlJQ07Vfcx.nuZhvBoNSdei0tQSGyJwCjM1BY2uxiS', 'SUPERVISOR', NULL, TRUE),
 
 -- Maintenance Staff (5 Specializations)
-('u003-staf-clean-uuid-000000000003', 'EMP_CLN_01', 'Murugan K (Housekeeper)', 'murugan.cln@vit.ac.in', '9876543220', '$2a$12$eKx6v1s97N8zL6a1k2qJ6.k4pZ2hY6dG9oP4eN1mB3vC7xS5tU0q2', 'STAFF', 'CLEANING', TRUE),
-('u004-staf-clean-uuid-000000000004', 'EMP_CLN_02', 'Ramesh P (Housekeeper)', 'ramesh.cln@vit.ac.in', '9876543221', '$2a$12$eKx6v1s97N8zL6a1k2qJ6.k4pZ2hY6dG9oP4eN1mB3vC7xS5tU0q2', 'STAFF', 'CLEANING', TRUE),
-('u005-staf-elec-uuid-000000000005', 'EMP_ELEC_01', 'Suresh Kumar (Electrician)', 'suresh.elec@vit.ac.in', '9876543222', '$2a$12$eKx6v1s97N8zL6a1k2qJ6.k4pZ2hY6dG9oP4eN1mB3vC7xS5tU0q2', 'STAFF', 'ELECTRICIAN', TRUE),
-('u006-staf-carp-uuid-000000000006', 'EMP_CARP_01', 'Govindraj M (Carpenter)', 'govind.carp@vit.ac.in', '9876543223', '$2a$12$eKx6v1s97N8zL6a1k2qJ6.k4pZ2hY6dG9oP4eN1mB3vC7xS5tU0q2', 'STAFF', 'CARPENTER', TRUE),
-('u007-staf-actech-uuid-000000000007', 'EMP_AC_01', 'Dhanush V (AC Specialist)', 'dhanush.ac@vit.ac.in', '9876543224', '$2a$12$eKx6v1s97N8zL6a1k2qJ6.k4pZ2hY6dG9oP4eN1mB3vC7xS5tU0q2', 'STAFF', 'AC_TECH', TRUE),
-('u008-staf-plumb-uuid-000000000008', 'EMP_PLB_01', 'Karthik N (Plumber)', 'karthik.plb@vit.ac.in', '9876543225', '$2a$12$eKx6v1s97N8zL6a1k2qJ6.k4pZ2hY6dG9oP4eN1mB3vC7xS5tU0q2', 'STAFF', 'PLUMBER', TRUE),
+('u003-staf-clean-uuid-000000000003', 'EMP_CLN_01', 'Murugan K (Housekeeper)', 'murugan.cln@vit.ac.in', '9876543220', '$2b$12$FHrTmI5VL8yWlJQ07Vfcx.nuZhvBoNSdei0tQSGyJwCjM1BY2uxiS', 'STAFF', 'CLEANING', TRUE),
+('u004-staf-clean-uuid-000000000004', 'EMP_CLN_02', 'Ramesh P (Housekeeper)', 'ramesh.cln@vit.ac.in', '9876543221', '$2b$12$FHrTmI5VL8yWlJQ07Vfcx.nuZhvBoNSdei0tQSGyJwCjM1BY2uxiS', 'STAFF', 'CLEANING', TRUE),
+('u005-staf-elec-uuid-000000000005', 'EMP_ELEC_01', 'Suresh Kumar (Electrician)', 'suresh.elec@vit.ac.in', '9876543222', '$2b$12$FHrTmI5VL8yWlJQ07Vfcx.nuZhvBoNSdei0tQSGyJwCjM1BY2uxiS', 'STAFF', 'ELECTRICIAN', TRUE),
+('u006-staf-carp-uuid-000000000006', 'EMP_CARP_01', 'Govindraj M (Carpenter)', 'govind.carp@vit.ac.in', '9876543223', '$2b$12$FHrTmI5VL8yWlJQ07Vfcx.nuZhvBoNSdei0tQSGyJwCjM1BY2uxiS', 'STAFF', 'CARPENTER', TRUE),
+('u007-staf-actech-uuid-000000000007', 'EMP_AC_01', 'Dhanush V (AC Specialist)', 'dhanush.ac@vit.ac.in', '9876543224', '$2b$12$FHrTmI5VL8yWlJQ07Vfcx.nuZhvBoNSdei0tQSGyJwCjM1BY2uxiS', 'STAFF', 'AC_TECH', TRUE),
+('u008-staf-plumb-uuid-000000000008', 'EMP_PLB_01', 'Karthik N (Plumber)', 'karthik.plb@vit.ac.in', '9876543225', '$2b$12$FHrTmI5VL8yWlJQ07Vfcx.nuZhvBoNSdei0tQSGyJwCjM1BY2uxiS', 'STAFF', 'PLUMBER', TRUE),
 
 -- Students residing in L-Block
-('u009-stud-0843-uuid-000000000009', '21BCE0843', 'Vihaan Sharma', 'vihaan.sharma2021@vitstudent.ac.in', '9876543230', '$2a$12$eKx6v1s97N8zL6a1k2qJ6.k4pZ2hY6dG9oP4eN1mB3vC7xS5tU0q2', 'STUDENT', NULL, TRUE),
-('u010-stud-0810-uuid-000000000010', '21BCE1042', 'Rahul Varma', 'rahul.varma2021@vitstudent.ac.in', '9876543231', '$2a$12$eKx6v1s97N8zL6a1k2qJ6.k4pZ2hY6dG9oP4eN1mB3vC7xS5tU0q2', 'STUDENT', NULL, TRUE),
-('u011-stud-0825-uuid-000000000011', '21BCE1523', 'Aditya Nair', 'aditya.nair2021@vitstudent.ac.in', '9876543232', '$2a$12$eKx6v1s97N8zL6a1k2qJ6.k4pZ2hY6dG9oP4eN1mB3vC7xS5tU0q2', 'STUDENT', NULL, TRUE),
-('u012-stud-0305-uuid-000000000012', '22BCE0190', 'Priya Iyer', 'priya.iyer2022@vitstudent.ac.in', '9876543233', '$2a$12$eKx6v1s97N8zL6a1k2qJ6.k4pZ2hY6dG9oP4eN1mB3vC7xS5tU0q2', 'STUDENT', NULL, TRUE)
+('u009-stud-0843-uuid-000000000009', '21BCE0843', 'Vihaan Sharma', 'vihaan.sharma2021@vitstudent.ac.in', '9876543230', '$2b$12$FHrTmI5VL8yWlJQ07Vfcx.nuZhvBoNSdei0tQSGyJwCjM1BY2uxiS', 'STUDENT', NULL, TRUE),
+('u010-stud-0810-uuid-000000000010', '21BCE1042', 'Rahul Varma', 'rahul.varma2021@vitstudent.ac.in', '9876543231', '$2b$12$FHrTmI5VL8yWlJQ07Vfcx.nuZhvBoNSdei0tQSGyJwCjM1BY2uxiS', 'STUDENT', NULL, TRUE),
+('u011-stud-0825-uuid-000000000011', '21BCE1523', 'Aditya Nair', 'aditya.nair2021@vitstudent.ac.in', '9876543232', '$2b$12$FHrTmI5VL8yWlJQ07Vfcx.nuZhvBoNSdei0tQSGyJwCjM1BY2uxiS', 'STUDENT', NULL, TRUE),
+('u012-stud-0305-uuid-000000000012', '22BCE0190', 'Priya Iyer', 'priya.iyer2022@vitstudent.ac.in', '9876543233', '$2b$12$FHrTmI5VL8yWlJQ07Vfcx.nuZhvBoNSdei0tQSGyJwCjM1BY2uxiS', 'STUDENT', NULL, TRUE)
 ON CONFLICT (user_id) DO NOTHING;
 
 -- 5. Insert Student Room Allotments

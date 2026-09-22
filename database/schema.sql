@@ -86,9 +86,18 @@ CREATE TABLE student_room_allotments (
     room_id VARCHAR(20) NOT NULL REFERENCES rooms(room_id) ON DELETE RESTRICT,
     academic_year VARCHAR(10) NOT NULL, -- e.g. '2026-2027'
     is_current BOOLEAN DEFAULT TRUE,
-    assigned_date DATE DEFAULT CURRENT_DATE,
-    CONSTRAINT uq_student_active_allotment UNIQUE (student_id, is_current)
+    assigned_date DATE DEFAULT CURRENT_DATE
+    -- NOTE: uniqueness of the *current* allotment is enforced below via a partial
+    -- unique index, not a table constraint. A plain UNIQUE(student_id, is_current)
+    -- caps a student at one FALSE row for their entire history, which rejects a
+    -- second past allotment as a duplicate. See uq_student_current_allotment.
 );
+
+-- Only one CURRENT allotment per student is allowed; any number of historical
+-- (is_current = FALSE) allotments are fine.
+CREATE UNIQUE INDEX uq_student_current_allotment
+    ON student_room_allotments (student_id)
+    WHERE is_current = TRUE;
 
 -- ============================================================================
 -- 3. CATEGORIES & TAXONOMY
@@ -141,7 +150,7 @@ CREATE TABLE complaints (
     closed_at TIMESTAMP WITH TIME ZONE,
     CONSTRAINT chk_complaint_location CHECK (
         (ticket_scope = 'ROOM' AND room_id IS NOT NULL AND common_area_id IS NULL) OR
-        (ticket_scope = 'COMMON_AREA' AND common_area_id IS NOT NULL)
+        (ticket_scope = 'COMMON_AREA' AND common_area_id IS NOT NULL AND room_id IS NULL)
     )
 );
 

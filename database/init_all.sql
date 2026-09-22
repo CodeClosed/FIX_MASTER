@@ -93,9 +93,18 @@ CREATE TABLE student_room_allotments (
     room_id VARCHAR(20) NOT NULL REFERENCES rooms(room_id) ON DELETE RESTRICT,
     academic_year VARCHAR(10) NOT NULL, -- e.g. '2026-2027'
     is_current BOOLEAN DEFAULT TRUE,
-    assigned_date DATE DEFAULT CURRENT_DATE,
-    CONSTRAINT uq_student_active_allotment UNIQUE (student_id, is_current)
+    assigned_date DATE DEFAULT CURRENT_DATE
+    -- NOTE: uniqueness of the *current* allotment is enforced below via a partial
+    -- unique index, not a table constraint. A plain UNIQUE(student_id, is_current)
+    -- caps a student at one FALSE row for their entire history, which rejects a
+    -- second past allotment as a duplicate. See uq_student_current_allotment.
 );
+
+-- Only one CURRENT allotment per student is allowed; any number of historical
+-- (is_current = FALSE) allotments are fine.
+CREATE UNIQUE INDEX uq_student_current_allotment
+    ON student_room_allotments (student_id)
+    WHERE is_current = TRUE;
 
 -- ============================================================================
 -- 3. CATEGORIES & TAXONOMY
@@ -148,7 +157,7 @@ CREATE TABLE complaints (
     closed_at TIMESTAMP WITH TIME ZONE,
     CONSTRAINT chk_complaint_location CHECK (
         (ticket_scope = 'ROOM' AND room_id IS NOT NULL AND common_area_id IS NULL) OR
-        (ticket_scope = 'COMMON_AREA' AND common_area_id IS NOT NULL)
+        (ticket_scope = 'COMMON_AREA' AND common_area_id IS NOT NULL AND room_id IS NULL)
     )
 );
 
@@ -198,7 +207,6 @@ CREATE INDEX idx_complaints_room ON complaints(room_id);
 CREATE INDEX idx_assignments_staff_state ON complaint_assignments(staff_user_id, current_state);
 CREATE INDEX idx_users_staff_dispatch ON users(role, specialization, is_available) WHERE role = 'STAFF';
 
-
 -- >>>>> PART 2: TRIGGERS, PROCEDURES & VIEWS <<<<<
 -- ============================================================================
 -- FIX_MASTER: Database Triggers, Stored Procedures, Functions & Views
@@ -211,10 +219,20 @@ CREATE INDEX idx_users_staff_dispatch ON users(role, specialization, is_availabl
 -- ============================================================================
 
 -- Trigger 1: Automated Audit Logging for Complaint Status Changes
+--
+-- changed_by_user_id is read from the session-local setting 'app.current_user_id',
+-- which the application sets with `SET LOCAL app.current_user_id = <uuid>` at the
+-- start of any transaction that changes complaint status (see src/config/db.js's
+-- withTransaction helper). If nothing set it (e.g. a manual psql UPDATE), the log
+-- row is written with changed_by_user_id = NULL rather than failing.
 CREATE OR REPLACE FUNCTION fn_audit_complaint_status_change()
 RETURNS TRIGGER AS $$
+DECLARE
+    v_actor_id VARCHAR(36);
 BEGIN
     IF (OLD.status IS DISTINCT FROM NEW.status) THEN
+        v_actor_id := NULLIF(current_setting('app.current_user_id', true), '');
+
         INSERT INTO complaint_logs (
             complaint_id,
             changed_by_user_id,
@@ -224,10 +242,10 @@ BEGIN
         )
         VALUES (
             NEW.complaint_id,
-            NULL,
+            v_actor_id,
             OLD.status,
             NEW.status,
-            CONCAT('Automated transition: ', OLD.status, ' -> ', NEW.status)
+            CONCAT('Transition: ', OLD.status, ' -> ', NEW.status)
         );
     END IF;
     RETURN NEW;
@@ -267,37 +285,41 @@ EXECUTE FUNCTION fn_update_complaint_timestamps();
 -- ============================================================================
 
 -- Procedure 1: 1-Click Auto-Dispatch for Cleaning Staff (Least Loaded)
+--
+-- p_assigned_staff_id is an INOUT parameter: it comes back NULL when no
+-- on-duty cleaning staff were available, and the complaint is left OPEN
+-- rather than silently reporting success. Callers must check this value
+-- instead of assuming the CALL succeeding means a technician was dispatched.
 CREATE OR REPLACE PROCEDURE sp_auto_dispatch_cleaning(
-    p_complaint_id VARCHAR(36)
+    p_complaint_id VARCHAR(36),
+    INOUT p_assigned_staff_id VARCHAR(36) DEFAULT NULL
 )
 LANGUAGE plpgsql
 AS $$
-DECLARE
-    v_assigned_staff_id VARCHAR(36);
 BEGIN
     -- 1. Identify on-duty cleaning staff with minimum active assignments
-    SELECT u.user_id INTO v_assigned_staff_id
+    SELECT u.user_id INTO p_assigned_staff_id
     FROM users u
-    LEFT JOIN complaint_assignments ca 
-        ON u.user_id = ca.staff_user_id 
+    LEFT JOIN complaint_assignments ca
+        ON u.user_id = ca.staff_user_id
         AND ca.current_state IN ('ASSIGNED', 'IN_PROGRESS')
-    WHERE u.role = 'STAFF' 
-      AND u.specialization = 'CLEANING' 
+    WHERE u.role = 'STAFF'
+      AND u.specialization = 'CLEANING'
       AND u.is_available = TRUE
     GROUP BY u.user_id
     ORDER BY COUNT(ca.assignment_id) ASC, u.created_at ASC
     LIMIT 1;
 
-    IF v_assigned_staff_id IS NULL THEN
-        UPDATE complaints 
-        SET status = 'OPEN' 
+    IF p_assigned_staff_id IS NULL THEN
+        UPDATE complaints
+        SET status = 'OPEN'
         WHERE complaint_id = p_complaint_id;
     ELSE
         INSERT INTO complaint_assignments (complaint_id, staff_user_id, current_state)
-        VALUES (p_complaint_id, v_assigned_staff_id, 'ASSIGNED');
+        VALUES (p_complaint_id, p_assigned_staff_id, 'ASSIGNED');
 
-        UPDATE complaints 
-        SET status = 'ASSIGNED' 
+        UPDATE complaints
+        SET status = 'ASSIGNED'
         WHERE complaint_id = p_complaint_id;
     END IF;
 END;
@@ -467,7 +489,6 @@ GROUP BY c.block_id, c.ticket_scope, COALESCE(r.room_number, ca_area.description
 HAVING COUNT(c.complaint_id) >= 2
 ORDER BY incident_count_14_days DESC;
 
-
 -- >>>>> PART 3: REALISTIC SEED DATA (VIT L-BLOCK) <<<<<
 -- ============================================================================
 -- FIX_MASTER: Realistic Seed Dataset for VIT Vellore (L-Block Focus)
@@ -517,27 +538,29 @@ INSERT INTO common_areas (area_id, block_id, floor_number, area_type, descriptio
 ON CONFLICT (area_id) DO NOTHING;
 
 -- 4. Insert Unified Users (Admins, Supervisors, Staff, Students)
--- Password for all seed users is 'Password@123' (BCrypt hash)
+-- Password for all seed users is 'Password@123' (bcrypt, cost 12, verified to match).
+-- This is a shared demo credential for local development only - rotate it before
+-- any deployment that isn't strictly local.
 INSERT INTO users (user_id, reg_or_emp_id, full_name, email, phone_number, password_hash, role, specialization, is_available) VALUES
 -- Admin
-('u001-admin-0001-uuid-000000000001', 'ADMIN_ESTATES_01', 'Chief Warden / Estates Admin', 'admin.hostels@vit.ac.in', '9876543210', '$2a$12$eKx6v1s97N8zL6a1k2qJ6.k4pZ2hY6dG9oP4eN1mB3vC7xS5tU0q2', 'ADMIN', NULL, TRUE),
+('u001-admin-0001-uuid-000000000001', 'ADMIN_ESTATES_01', 'Chief Warden / Estates Admin', 'admin.hostels@vit.ac.in', '9876543210', '$2b$12$FHrTmI5VL8yWlJQ07Vfcx.nuZhvBoNSdei0tQSGyJwCjM1BY2uxiS', 'ADMIN', NULL, TRUE),
 
 -- Supervisors
-('u002-supv-0001-uuid-000000000002', 'SUP_LBLOCK_01', 'Mr. R. Sundaram (L-Block Supervisor)', 'supervisor.lblock@vit.ac.in', '9876543211', '$2a$12$eKx6v1s97N8zL6a1k2qJ6.k4pZ2hY6dG9oP4eN1mB3vC7xS5tU0q2', 'SUPERVISOR', NULL, TRUE),
+('u002-supv-0001-uuid-000000000002', 'SUP_LBLOCK_01', 'Mr. R. Sundaram (L-Block Supervisor)', 'supervisor.lblock@vit.ac.in', '9876543211', '$2b$12$FHrTmI5VL8yWlJQ07Vfcx.nuZhvBoNSdei0tQSGyJwCjM1BY2uxiS', 'SUPERVISOR', NULL, TRUE),
 
 -- Maintenance Staff (5 Specializations)
-('u003-staf-clean-uuid-000000000003', 'EMP_CLN_01', 'Murugan K (Housekeeper)', 'murugan.cln@vit.ac.in', '9876543220', '$2a$12$eKx6v1s97N8zL6a1k2qJ6.k4pZ2hY6dG9oP4eN1mB3vC7xS5tU0q2', 'STAFF', 'CLEANING', TRUE),
-('u004-staf-clean-uuid-000000000004', 'EMP_CLN_02', 'Ramesh P (Housekeeper)', 'ramesh.cln@vit.ac.in', '9876543221', '$2a$12$eKx6v1s97N8zL6a1k2qJ6.k4pZ2hY6dG9oP4eN1mB3vC7xS5tU0q2', 'STAFF', 'CLEANING', TRUE),
-('u005-staf-elec-uuid-000000000005', 'EMP_ELEC_01', 'Suresh Kumar (Electrician)', 'suresh.elec@vit.ac.in', '9876543222', '$2a$12$eKx6v1s97N8zL6a1k2qJ6.k4pZ2hY6dG9oP4eN1mB3vC7xS5tU0q2', 'STAFF', 'ELECTRICIAN', TRUE),
-('u006-staf-carp-uuid-000000000006', 'EMP_CARP_01', 'Govindraj M (Carpenter)', 'govind.carp@vit.ac.in', '9876543223', '$2a$12$eKx6v1s97N8zL6a1k2qJ6.k4pZ2hY6dG9oP4eN1mB3vC7xS5tU0q2', 'STAFF', 'CARPENTER', TRUE),
-('u007-staf-actech-uuid-000000000007', 'EMP_AC_01', 'Dhanush V (AC Specialist)', 'dhanush.ac@vit.ac.in', '9876543224', '$2a$12$eKx6v1s97N8zL6a1k2qJ6.k4pZ2hY6dG9oP4eN1mB3vC7xS5tU0q2', 'STAFF', 'AC_TECH', TRUE),
-('u008-staf-plumb-uuid-000000000008', 'EMP_PLB_01', 'Karthik N (Plumber)', 'karthik.plb@vit.ac.in', '9876543225', '$2a$12$eKx6v1s97N8zL6a1k2qJ6.k4pZ2hY6dG9oP4eN1mB3vC7xS5tU0q2', 'STAFF', 'PLUMBER', TRUE),
+('u003-staf-clean-uuid-000000000003', 'EMP_CLN_01', 'Murugan K (Housekeeper)', 'murugan.cln@vit.ac.in', '9876543220', '$2b$12$FHrTmI5VL8yWlJQ07Vfcx.nuZhvBoNSdei0tQSGyJwCjM1BY2uxiS', 'STAFF', 'CLEANING', TRUE),
+('u004-staf-clean-uuid-000000000004', 'EMP_CLN_02', 'Ramesh P (Housekeeper)', 'ramesh.cln@vit.ac.in', '9876543221', '$2b$12$FHrTmI5VL8yWlJQ07Vfcx.nuZhvBoNSdei0tQSGyJwCjM1BY2uxiS', 'STAFF', 'CLEANING', TRUE),
+('u005-staf-elec-uuid-000000000005', 'EMP_ELEC_01', 'Suresh Kumar (Electrician)', 'suresh.elec@vit.ac.in', '9876543222', '$2b$12$FHrTmI5VL8yWlJQ07Vfcx.nuZhvBoNSdei0tQSGyJwCjM1BY2uxiS', 'STAFF', 'ELECTRICIAN', TRUE),
+('u006-staf-carp-uuid-000000000006', 'EMP_CARP_01', 'Govindraj M (Carpenter)', 'govind.carp@vit.ac.in', '9876543223', '$2b$12$FHrTmI5VL8yWlJQ07Vfcx.nuZhvBoNSdei0tQSGyJwCjM1BY2uxiS', 'STAFF', 'CARPENTER', TRUE),
+('u007-staf-actech-uuid-000000000007', 'EMP_AC_01', 'Dhanush V (AC Specialist)', 'dhanush.ac@vit.ac.in', '9876543224', '$2b$12$FHrTmI5VL8yWlJQ07Vfcx.nuZhvBoNSdei0tQSGyJwCjM1BY2uxiS', 'STAFF', 'AC_TECH', TRUE),
+('u008-staf-plumb-uuid-000000000008', 'EMP_PLB_01', 'Karthik N (Plumber)', 'karthik.plb@vit.ac.in', '9876543225', '$2b$12$FHrTmI5VL8yWlJQ07Vfcx.nuZhvBoNSdei0tQSGyJwCjM1BY2uxiS', 'STAFF', 'PLUMBER', TRUE),
 
 -- Students residing in L-Block
-('u009-stud-0843-uuid-000000000009', '21BCE0843', 'Vihaan Sharma', 'vihaan.sharma2021@vitstudent.ac.in', '9876543230', '$2a$12$eKx6v1s97N8zL6a1k2qJ6.k4pZ2hY6dG9oP4eN1mB3vC7xS5tU0q2', 'STUDENT', NULL, TRUE),
-('u010-stud-0810-uuid-000000000010', '21BCE1042', 'Rahul Varma', 'rahul.varma2021@vitstudent.ac.in', '9876543231', '$2a$12$eKx6v1s97N8zL6a1k2qJ6.k4pZ2hY6dG9oP4eN1mB3vC7xS5tU0q2', 'STUDENT', NULL, TRUE),
-('u011-stud-0825-uuid-000000000011', '21BCE1523', 'Aditya Nair', 'aditya.nair2021@vitstudent.ac.in', '9876543232', '$2a$12$eKx6v1s97N8zL6a1k2qJ6.k4pZ2hY6dG9oP4eN1mB3vC7xS5tU0q2', 'STUDENT', NULL, TRUE),
-('u012-stud-0305-uuid-000000000012', '22BCE0190', 'Priya Iyer', 'priya.iyer2022@vitstudent.ac.in', '9876543233', '$2a$12$eKx6v1s97N8zL6a1k2qJ6.k4pZ2hY6dG9oP4eN1mB3vC7xS5tU0q2', 'STUDENT', NULL, TRUE)
+('u009-stud-0843-uuid-000000000009', '21BCE0843', 'Vihaan Sharma', 'vihaan.sharma2021@vitstudent.ac.in', '9876543230', '$2b$12$FHrTmI5VL8yWlJQ07Vfcx.nuZhvBoNSdei0tQSGyJwCjM1BY2uxiS', 'STUDENT', NULL, TRUE),
+('u010-stud-0810-uuid-000000000010', '21BCE1042', 'Rahul Varma', 'rahul.varma2021@vitstudent.ac.in', '9876543231', '$2b$12$FHrTmI5VL8yWlJQ07Vfcx.nuZhvBoNSdei0tQSGyJwCjM1BY2uxiS', 'STUDENT', NULL, TRUE),
+('u011-stud-0825-uuid-000000000011', '21BCE1523', 'Aditya Nair', 'aditya.nair2021@vitstudent.ac.in', '9876543232', '$2b$12$FHrTmI5VL8yWlJQ07Vfcx.nuZhvBoNSdei0tQSGyJwCjM1BY2uxiS', 'STUDENT', NULL, TRUE),
+('u012-stud-0305-uuid-000000000012', '22BCE0190', 'Priya Iyer', 'priya.iyer2022@vitstudent.ac.in', '9876543233', '$2b$12$FHrTmI5VL8yWlJQ07Vfcx.nuZhvBoNSdei0tQSGyJwCjM1BY2uxiS', 'STUDENT', NULL, TRUE)
 ON CONFLICT (user_id) DO NOTHING;
 
 -- 5. Insert Student Room Allotments
@@ -637,4 +660,3 @@ INSERT INTO complaint_logs (complaint_id, changed_by_user_id, previous_status, n
 ('cmp-843-0001-uuid-000000000001', 'u003-staf-clean-uuid-000000000003', 'ASSIGNED', 'IN_PROGRESS', 'Staff arrived at Room 843 and commenced cleaning', CURRENT_TIMESTAMP - INTERVAL '30 mins'),
 ('cmp-825-0001-uuid-000000000004', 'u011-stud-0825-uuid-000000000011', 'PENDING_VERIFICATION', 'COMPLETED', 'Student verified work and gave 5 stars', CURRENT_TIMESTAMP - INTERVAL '1 day')
 ON CONFLICT DO NOTHING;
-

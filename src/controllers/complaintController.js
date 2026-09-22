@@ -1,8 +1,12 @@
 const db = require('../config/db');
 const { AppError, asyncHandler } = require('../middleware/errorHandler');
 
+// required_specialization is included so a dispatch UI can pre-filter the
+// staff picker to the trade this ticket actually needs, instead of listing
+// every technician and relying solely on the server-side mismatch rejection
+// in dispatchController.assignTechnician.
 const COMPLAINT_SELECT = `
-    SELECT c.*, cat.category_name, sub.issue_name, u.full_name as student_name
+    SELECT c.*, cat.category_name, sub.issue_name, sub.required_specialization, u.full_name as student_name
     FROM complaints c
     JOIN complaint_subcategories sub ON c.subcategory_id = sub.subcategory_id
     JOIN complaint_categories cat ON sub.category_id = cat.category_id

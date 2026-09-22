@@ -16,7 +16,14 @@ const authenticate = (req, res, next) => {
         return res.status(401).json({ error: 'Access denied. No token provided.' });
     }
     if (decoded === undefined) {
-        return res.status(403).json({ error: 'Invalid or expired token.' });
+        // 401, not 403: an invalid/expired token means "please re-authenticate",
+        // which a client should treat as a reason to log out. 403 is reserved
+        // for authorize() and ownership checks below - "you ARE authenticated,
+        // you're just not allowed to do this" - which a client must NOT treat
+        // as a reason to log out. Mixing the two under 403 previously meant a
+        // frontend that logs out on 403 would also log a user out for hitting
+        // an ordinary RBAC or ownership boundary.
+        return res.status(401).json({ error: 'Invalid or expired token.' });
     }
     req.user = decoded; // { userId, role, regOrEmpId }
     next();
